@@ -1,8 +1,8 @@
 ---
-title: "Análise da Evolução da COVID-19"
-author: "Gonçalo Eloy, Helena Salgueiro, Mafalda Gomes, Margarida Caravela e Sara Cardoso"
-date: "Outubro, 2021"
-output:
+ title: "Análise da Evolução da COVID-19"
+ author: "Gonçalo Eloy, Helena Salgueiro, Mafalda Gomes, Margarida Caravela e Sara Cardoso"
+ date: "Outubro, 2021"
+ output:
   html_document:
     theme: paper
     highlight: zenburn
