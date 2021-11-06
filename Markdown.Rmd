@@ -1,3 +1,27 @@
+---
+title: "Análise da Evolução da COVID-19"
+author: "Gonçalo Eloy, Helena Salgueiro, Mafalda Gomes, Margarida Caravela e Sara Cardoso"
+date: "Outubro, 2021"
+output:
+  html_document:
+    theme: paper
+    highlight: zenburn
+    df_print: paged
+---
+
+<style type="text/css">
+
+body {
+text-align: justify}
+</style>
+
+```{css, echo=FALSE}
+/* Whole document: */
+body{
+  font-size: 12pt ;
+}
+```
+
 ### **Introdução**
 
 O SARS-CoV-2 é um novo coronavírus que saltou a barreira entre espécies. Quer isto dizer que este vírus foi transmitido ao Homem a partir de um animal reservatório ou hospedeiro desse mesmo vírus. A doença por ele originada é designada por COVID-19 e foi identificada pela primeira vez em dezembro de 2019, na China. [^1]
@@ -916,3 +940,4 @@ O intervalo de série trata-se do tempo entre o início dos sintomas no indivíd
 ```{r guardar dados, include=FALSE, warning=FALSE, message=FALSE}
 #render("fim.Rmd")
 ```
+
