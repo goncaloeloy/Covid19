@@ -1,0 +1,940 @@
+---
+title: "Análise da Evolução da COVID-19"
+output:
+  html_document:
+    theme: paper
+    highlight: zenburn
+    df_print: paged
+---
+
+<style type="text/css">
+
+body {
+text-align: justify}
+</style>
+
+```{css, echo=FALSE}
+/* Whole document: */
+body{
+  font-size: 12pt ;
+}
+```
+
+### **Introdução**
+
+O SARS-CoV-2 é um novo coronavírus que saltou a barreira entre espécies. Quer isto dizer que este vírus foi transmitido ao Homem a partir de um animal reservatório ou hospedeiro desse mesmo vírus. A doença por ele originada é designada por COVID-19 e foi identificada pela primeira vez em dezembro de 2019, na China. [^1]
+
+[^1]: DGS: Perguntas frequentes [Internet]. 2021. [acedido em 2021 Out 6]. https://covid19.min-saude.pt/category/perguntas-frequentes/
+
+Neste relatório, pretendemos avaliar a situação epidemiológica relativa a esta doença em Portugal desde o início da pandemia, com base nos dados do sites <https://github.com/dssg-pt/covid19pt-data> e <https://www.ecdc.europa.eu/en/publications-data/data-covid-19-vaccination-eu-eea>.
+
+Este relatório visa analisar os seguintes pontos:
+<ul>
+  <li>evolução dos casos diários</li>
+  <li>casos por administração regional de saúde (ARS)</li>
+  <li>evolução dos casos de doença grave</li>
+  <li>eficácia da vacinação</li>
+  <ul>
+     <li>percentagem de pessoas completamente vacinadas por grupo etário</li>
+     <li>evolução da vacinação completa e primeiras doses por grupo etário</li>
+     <li>taxa de população com vacinação incompleta por grupo etário</li>
+     </ul>
+  <li>transmissibilidade do vírus - R(t)</li>
+</ul>
+
+
+```{r bibliotecas, include=FALSE, warning=FALSE, message=FALSE}
+# Libraries
+library(RCurl)
+library(ggplot2)
+library(plotly)
+require(rmarkdown)
+library(leaflet)
+library(zoo)
+library(tidyverse)
+library(lubridate)
+library(fpp2)
+library(dplyr)
+library(devtools)
+library(rgdal)
+library(knitr)
+library(tinytex)
+library(shiny)
+library(readr)
+library(earlyR)
+library(psych)
+library(RColorBrewer)
+library(ggthemes)
+library(extrafont)
+library(gapminder)
+library(purrr)
+library(incidence)
+library(EpiEstim)
+library(sars2pack)
+library(patchwork)
+library(gridExtra)
+library(tseries)
+library(dtwclust)
+library(cowplot)
+library(latticeExtra)
+```
+
+
+```{r base de dados, include=FALSE, warning=FALSE, message=FALSE}
+# Dizer qual a work directory
+setwd("C:/Users/marga/Desktop/6.º Ano/Problemas/3. COVID/R Markdown")
+# Abrir base de dados
+# x <- getURL("https://raw.githubusercontent.com/dssg-pt/covid19pt-data/master/data.csv") 
+# data_covid <- read.csv(text = x) #Nem sempre funcionam...
+x = "https://raw.githubusercontent.com/dssg-pt/covid19pt-data/master/data.csv"
+data_covid <- read.csv(url(x))
+# w <- getURL("https://raw.githubusercontent.com/dssg-pt/covid19pt-data/master/vacinas_detalhe.csv")
+# data_vacina <- read.csv(text = w)
+w = "https://raw.githubusercontent.com/dssg-pt/covid19pt-data/master/vacinas_detalhe.csv"
+data_vacina <- read.csv(url(w))
+z = "https://raw.githubusercontent.com/dssg-pt/covid19pt-data/master/vacinas.csv"
+data_vacinacao <- read.csv(url(z))
+# Abrir o ficheiro de vacinação diretamente do site (sempre preferível)
+ecdc <- readr::read_csv('https://opendata.ecdc.europa.eu/covid19/vaccine_tracker/csv/data.csv')
+```
+
+<br>
+
+### **Análise dos dados**  
+
+
+#### **Evolução dos casos diários**
+
+Para analisar a evolução dos casos diários, utilizámos os valores de casos confirmados em indivíduos do sexo feminino e masculino para cada faixa etária. Uma vez que estes números são cumulativos, criámos novas colunas com a soma dos valores correspondentes aos 2 sexos para cada faixa etária e ainda outras com a diferença de valores da linha anterior, passando tudo para uma tabela nova com os valores de interesse para esta parte da análise.
+A base de dados utilizada inclui informação desde o dia 26 de Fevereiro de 2020, sendo atualizada diariamente.
+
+
+<br>
+
+```{r manipulação de dados, include=FALSE, warning=FALSE, message=FALSE}
+# Alterar formato character para formato data
+data_covid$data2 <- as.Date(data_covid$data, format = "%d-%m-%Y")
+data_vacina$data2 <- as.Date(data_vacina$data, format = "%d-%m-%Y")
+# Alterar valores negativos para evitar erro à frente
+data_covid[425, 23:40] = data_covid[424, 23:40]
+# Novas colunas com a soma dos femininos e masculinos
+data_covid$confirmados_0_9 <- data_covid$confirmados_0_9_f + data_covid$confirmados_0_9_m
+data_covid$confirmados_10_19 <- data_covid$confirmados_10_19_f + data_covid$confirmados_10_19_m
+data_covid$confirmados_20_29 <- data_covid$confirmados_20_29_f + data_covid$confirmados_20_29_m
+data_covid$confirmados_30_39 <- data_covid$confirmados_30_39_f + data_covid$confirmados_30_39_m
+data_covid$confirmados_40_49 <- data_covid$confirmados_40_49_f + data_covid$confirmados_40_49_m
+data_covid$confirmados_50_59 <- data_covid$confirmados_50_59_f + data_covid$confirmados_50_59_m
+data_covid$confirmados_60_69 <- data_covid$confirmados_60_69_f + data_covid$confirmados_60_69_m
+data_covid$confirmados_70_79 <- data_covid$confirmados_70_79_f + data_covid$confirmados_70_79_m
+data_covid$confirmados_80_plus <- data_covid$confirmados_80_plus_f + data_covid$confirmados_80_plus_m
+# Usámos a função diff(as.matrix(df)) que nos vai dar a diferença entre as linhas de uma data frame, das colunas que quisermos, se no sítio da df pusermos só as colunas que nos interessam.
+# Criar uma nova tabela em que apenas usamos a 1ª linha das colunas que nos interessam e depois criar outra em que usamos a fórmula acima para obter uma tabela só com os casos novos por faixa etária.
+casos_novos <- data_covid[1, c(95, 96, 97, 98, 99, 100, 101, 102, 103)]
+casos_novos2 <- data.frame(diff(as.matrix(data_covid[,c(95, 96, 97, 98, 99, 100, 101, 102, 103)])))
+# Unir as linhas das novas tabelas criadas
+casos_novos <- rbind(casos_novos, casos_novos2)
+# Adicionar data à nova tabela, adicionando a coluna "data2" da data frame original à nova tabela.
+casos_novos$Data <- data_covid[,94]
+# Juntar nova coluna com os confirmados novos totais
+casos_novos$Confirmados_novos <- data_covid[, 12]
+# Mudar os nomes das colunas.
+colnames(casos_novos) <- c("Casos_novos_0_9", "Casos_novos_10_19", "Casos_novos_20_29", "Casos_novos_30_39", "Casos_novos_40_49", "Casos_novos_50_59", "Casos_novos_60_69", "Casos_novos_70_79", "Casos_novos_80_plus", "Data2", "Confirmados_novos")
+# Passar os valores de novos casos para percentagem, caso seja necessário posteriormente.
+casos_novos$perc_novos_0_9 <- (casos_novos$Casos_novos_0_9 / casos_novos$Confirmados_novos) * 100
+casos_novos$perc_novos_10_19 <- (casos_novos$Casos_novos_10_19 / casos_novos$Confirmados_novos) * 100
+casos_novos$perc_novos_20_29 <- (casos_novos$Casos_novos_20_29 / casos_novos$Confirmados_novos) * 100
+casos_novos$perc_novos_30_39 <- (casos_novos$Casos_novos_30_39 / casos_novos$Confirmados_novos) * 100
+casos_novos$perc_novos_40_49 <- (casos_novos$Casos_novos_40_49 / casos_novos$Confirmados_novos) * 100
+casos_novos$perc_novos_50_59 <- (casos_novos$Casos_novos_50_59 / casos_novos$Confirmados_novos) * 100
+casos_novos$perc_novos_60_69 <- (casos_novos$Casos_novos_60_69 / casos_novos$Confirmados_novos) * 100
+casos_novos$perc_novos_70_79 <- (casos_novos$Casos_novos_70_79 / casos_novos$Confirmados_novos) * 100
+casos_novos$perc_novos_80_plus <- (casos_novos$Casos_novos_80_plus / casos_novos$Confirmados_novos) * 100
+# Fazer média rolante de todas as colunas para deixarmos de ter valores negativos e picos tão acentuados.
+casos_novos$Rollmean_0_9 <- rollmean(casos_novos$Casos_novos_0_9, k = 7, "center", fill = NA)
+casos_novos$Rollmean_10_19 <- rollmean(casos_novos$Casos_novos_10_19, k = 7, "center", fill = NA)
+casos_novos$Rollmean_20_29 <- rollmean(casos_novos$Casos_novos_20_29, k = 7, "center", fill = NA)
+casos_novos$Rollmean_30_39 <- rollmean(casos_novos$Casos_novos_30_39, k = 7, "center", fill = NA)
+casos_novos$Rollmean_40_49 <- rollmean(casos_novos$Casos_novos_40_49, k = 7, "center", fill = NA)
+casos_novos$Rollmean_50_59 <- rollmean(casos_novos$Casos_novos_50_59, k = 7, "center", fill = NA)
+casos_novos$Rollmean_60_69 <- rollmean(casos_novos$Casos_novos_60_69, k = 7, "center", fill = NA)
+casos_novos$Rollmean_70_79 <- rollmean(casos_novos$Casos_novos_70_79, k = 7, "center", fill = NA)
+casos_novos$Rollmean_80_plus <- rollmean(casos_novos$Casos_novos_80_plus, k = 7, "center", fill = NA)
+casos_novos$Rollmean_perc_0_9 <- rollmean(casos_novos$perc_novos_0_9, k = 7, "center", fill = NA)
+casos_novos$Rollmean_perc_10_19 <- rollmean(casos_novos$perc_novos_10_19, k = 7, "center", fill = NA)
+casos_novos$Rollmean_perc_20_29 <- rollmean(casos_novos$perc_novos_20_29, k = 7, "center", fill = NA)
+casos_novos$Rollmean_perc_30_39 <- rollmean(casos_novos$perc_novos_30_39, k = 7, "center", fill = NA)
+casos_novos$Rollmean_perc_40_49 <- rollmean(casos_novos$perc_novos_40_49, k = 7, "center", fill = NA)
+casos_novos$Rollmean_perc_50_59 <- rollmean(casos_novos$perc_novos_50_59, k = 7, "center", fill = NA)
+casos_novos$Rollmean_perc_60_69 <- rollmean(casos_novos$perc_novos_60_69, k = 7, "center", fill = NA)
+casos_novos$Rollmean_perc_70_79 <- rollmean(casos_novos$perc_novos_70_79, k = 7, "center", fill = NA)
+casos_novos$Rollmean_perc_80_plus <- rollmean(casos_novos$perc_novos_80_plus, k = 7, "center", fill = NA)
+```
+
+
+```{r fig area, echo=FALSE, message=FALSE, warning=FALSE}
+# Fazer scatter plotly com os valores das médias rolantes.
+fig <- plot_ly(casos_novos, x = casos_novos$Data2, y = casos_novos$Rollmean_perc_0_9, name = '0-9', type = 'scatter', mode = 'none', stackgroup = 'one', groupnorm = 'percent', fillcolor = '#5f9ea0')
+fig <- fig %>% add_trace(y = casos_novos$Rollmean_perc_10_19, name = '10-19', fillcolor = '#deb887')
+fig <- fig %>% add_trace(y = casos_novos$Rollmean_perc_20_29, name = '20-29', fillcolor = '#cd5b45')
+fig <- fig %>% add_trace(y = casos_novos$Rollmean_perc_30_39, name = '30-39', fillcolor = '#ffb90f')
+fig <- fig %>% add_trace(y = casos_novos$Rollmean_perc_40_49, name = '40-49', fillcolor = '#6495ed')
+fig <- fig %>% add_trace(y = casos_novos$Rollmean_perc_50_59, name = '50-59', fillcolor = '#e9967a')
+fig <- fig %>% add_trace(y = casos_novos$Rollmean_perc_60_69, name = '60-69', fillcolor = '#6e8b3d')
+fig <- fig %>% add_trace(y = casos_novos$Rollmean_perc_70_79, name = '70-79', fillcolor = '#7b68ee')
+fig <- fig %>% add_trace(y = casos_novos$Rollmean_perc_80_plus, name = '80+', fillcolor = '#f5bc5f')
+fig <- fig %>% layout(title = 'Evolução percentual de casos novos por grupo etário', 
+                      font=list(family = "helvetica", size = 12, color = '#1a1a1a'),
+                      xaxis = list(title = "Data", 
+                                   showgrid = FALSE), 
+                      yaxis = list(title = "% casos novos", 
+                                   showgrid = FALSE, 
+                                   ticksuffix = '%'),
+                      paper_bgcolor = "#ffffff",
+                      plot_bgcolor = "#ffffff"
+                      )
+fig <- fig %>% layout(legend=list(title=list(text='<b> Grupos etários </b>')))
+div(fig, align= "center")
+```
+
+
+<br>
+
+
+No começo do período apresentado no gráfico acima, existia um maior número de casos, em termos percentuais, do grupo etário dos 40 aos 49 anos. Em abril de 2020, por exemplo, observa-se que a população portuguesa com 80 anos ou mais, foi a mais afetada. Por outro lado, no passado mês de Agosto, registou-se uma maior percentagem de casos novos no grupo etário dos 20 aos 29 anos.
+
+
+<br>
+
+```{r fig linhas, echo=FALSE, message=FALSE, warning=FALSE}
+linhas_casos <- plot_ly(casos_novos, x = ~Data2, y = ~Rollmean_0_9, name = '0-9', type = 'scatter', mode = 'lines', color = '#5f9ea0')
+linhas_casos <- linhas_casos %>% add_trace(y = ~Rollmean_10_19, name = '10-19', color = '#deb887')
+linhas_casos <- linhas_casos %>% add_trace(y = ~Rollmean_20_29, name = '20-29', color = '#cd5b45')
+linhas_casos <- linhas_casos %>% add_trace(y = ~Rollmean_30_39, name = '30-39', color = '#ffb90f')
+linhas_casos <- linhas_casos %>% add_trace(y = ~Rollmean_40_49, name = '40-49', color = '#6495ed')
+linhas_casos <- linhas_casos %>% add_trace(y = ~Rollmean_50_59, name = '50-59', color = '#e9967a')
+linhas_casos <- linhas_casos %>% add_trace(y = ~Rollmean_60_69, name = '60-69', color = '#6e8b3d')
+linhas_casos <- linhas_casos %>% add_trace(y = ~Rollmean_70_79, name = '70-79', color = '#7b68ee')
+linhas_casos <- linhas_casos %>% add_trace(y = ~Rollmean_80_plus, name = '80+', color = '#f5bc5f')
+linhas_casos <- linhas_casos %>% layout(title= "Evolução de casos novos por grupo etário", 
+                       font=list(family = "helvetica", size = 12, color = '#1a1a1a'), 
+                       xaxis = list(title = "Data", 
+                                    showgrid=F, 
+                                    showline=F, 
+                                    zerolinecolor = '#1a1a1a'), 
+                       yaxis = list(title = "N.º de casos", 
+                                    showline= F,  
+                                    zerolinecolor = '#1a1a1a'), 
+                       paper_bgcolor='#ffffff', 
+                       plot_bgcolor='#ffffff')
+linhas_casos <- linhas_casos %>% layout(legend=list(title=list(text='<b> Grupos etários </b>')))
+div(linhas_casos, align = "center")
+```
+
+
+<br>
+
+
+Observando os traçados acima, constata-se que houve um aumento significativo no número de novos casos em todos os grupos etários, após a época natalícia de 2020. Já no ano de 2021, verifica-se que, durante os meses de verão, os casos novos também aumentaram, especialmente nalgumas camadas mais jovens.
+
+
+<br>
+
+#### **Casos por administração regional de saúde (ARS)**
+
+Com o objetivo de analisar a situação pandémica a nível geográfico, foi calculado o número de casos confirmados totais até ao momento, de acordo com a área de cada ARS e Açores e Madeira.
+Foi verificado que a ARS de Lisboa e Vale do Tejo teve o maior número de casos confirmados até ao momento (Mapa 1), enquanto que os Açores tiveram o menor número de casos (Mapa 2). Esta diferença de valores é justificada pelo facto de terem sido usado os valores inteiros, ao invés de valores percentuais, pelo que deve ser tida em conta a proporção em relação à população total de cada região representada.
+
+
+<br>
+
+
+```{r manipular dados, include=FALSE, warning=FALSE, message=FALSE}
+# Criar ARS com SHAPEFILES dos polígonos criados no GEOJSON
+ARS_norte <- readOGR(dsn = path.expand("C:/Users/marga/Desktop/6.º Ano/Problemas/3. COVID/Mapas/Geojson/ARS Norte shapefile/POLYGON.shp"))
+ARS_centro <- readOGR(dsn = path.expand("C:/Users/marga/Desktop/6.º Ano/Problemas/3. COVID/Mapas/Geojson/ARS Centro shapefile/POLYGON.shp"))
+ARS_lvt <- readOGR(dsn = path.expand("C:/Users/marga/Desktop/6.º Ano/Problemas/3. COVID/Mapas/Geojson/ARS LVT shapefile/POLYGON.shp"))
+ARS_alentejo <- readOGR(dsn = path.expand("C:/Users/marga/Desktop/6.º Ano/Problemas/3. COVID/Mapas/Geojson/ARS Alentejo shapefile/POLYGON.shp"))
+ARS_algarve <- readOGR(dsn = path.expand("C:/Users/marga/Desktop/6.º Ano/Problemas/3. COVID/Mapas/Geojson/ARS Algarve shapefile/POLYGON.shp"))
+Madeira <- readOGR(dsn = path.expand("C:/Users/marga/Desktop/6.º Ano/Problemas/3. COVID/Mapas/Geojson/Madeira shapefile/POLYGON.shp"))
+Acores <- readOGR(dsn = path.expand("C:/Users/marga/Desktop/6.º Ano/Problemas/3. COVID/Mapas/Geojson/Acores shapefile/POLYGON.shp"))
+# Nova tabela com os casos por ARS
+casos_ARS <- data_covid[,c(4:10)]
+casos_ARS <- cbind(data_covid$data2, casos_ARS)
+colnames(casos_ARS) <- c("Data", "confirmados_ARSNorte", "confirmados_ARSCentro", "confirmados_ARSlvt", "confirmados_ARSAlentejo", "confirmados_ARSAlgarve", "confirmados_acores", "confirmados_madeira")
+# Criar palete para criar legenda posteriormente
+pal <- colorFactor(palette = c("#5f9ea0", "#cd5c5c", "#8b7e66", "#556b2f", "#ee7942"), levels = c("1. ARS Norte", "2. ARS Centro", "3. ARS Lisboa e Vale do Tejo", "4. ARS Alentejo", "5. ARS Algarve"))
+```
+
+
+<style type="text/css">
+.html-widget { margin: auto; }
+div.info.legend.leaflet-control { text-align: left; }
+div.info.legend.leaflet-control div { text-align: center; }
+</style>
+
+
+```{r mapa cont, echo=FALSE, warning=FALSE, message=FALSE, fig.align = 'center', fig.cap="Casos confirmados cumulativos de COVID-19 por administração regional de saúde."}
+# Criar mapa leaflet com os polígonos
+mapa_ARS <- leaflet() %>% 
+  addTiles() %>% 
+  addProviderTiles(providers$CartoDB.Positron) %>% 
+  setView(lng = -7.733, lat = 40.255, zoom = 6) %>% 
+  addPolygons(data = ARS_norte,
+              color = "#5f9ea0",
+              opacity = 0.5,
+              label = "ARS Norte") %>% 
+  addLabelOnlyMarkers(-7.718, 41.406, label = "412177",
+                      labelOptions = labelOptions(noHide = T, direction = 'center', textOnly = T, style = list("color" = "black", "font-family" = "helvetica", "box-shadow" = "3px 3px rgba(0,0,0,0.25)", "font-size" = "12px", "border-color" = "rgba(0,0,0,0.5)"))) %>% 
+  addPolygons(data = ARS_centro,
+              color = "#cd5c5c",
+              opacity = 0.5,
+              label = "ARS Centro") %>%
+  addLabelOnlyMarkers(-7.833, 40.255, label = "143786",
+                      labelOptions = labelOptions(noHide = T, direction = 'center', textOnly = T, style = list("color" = "black", "font-family" = "helvetica", "box-shadow" = "3px 3px rgba(0,0,0,0.25)", "font-size" = "12px", "box-color" = "gray", "border-color" = "rgba(0,0,0,0.5)"))) %>% 
+  addPolygons(data = ARS_lvt,
+              color = "#8b7e66",
+              opacity = 0.5,
+              label = "ARS Lisboa e Vale do Tejo") %>% 
+  addLabelOnlyMarkers(-8.798, 39.136, label = "415419",
+                      labelOptions = labelOptions(noHide = T, direction = 'center', textOnly = T, style = list("color" = "black", "font-family" = "helvetica", "box-shadow" = "3px 3px rgba(0,0,0,0.25)", "font-size" = "12px", "box-color" = "gray", "border-color" = "rgba(0,0,0,0.5)"))) %>% 
+  addPolygons(data = ARS_alentejo,
+              color = "#556b2f",
+              opacity = 0.5,
+              label = "ARS Alentejo") %>% 
+  addLabelOnlyMarkers(-7.974, 38.261, label = "39438",
+                      labelOptions = labelOptions(noHide = T, direction = 'center', textOnly = T, style = list("color" = "black", "font-family" = "helvetica", "box-shadow" = "3px 3px rgba(0,0,0,0.25)", "font-size" = "12px", "box-color" = "gray", "border-color" = "rgba(0,0,0,0.5)"))) %>% 
+  addPolygons(data = ARS_algarve,
+              color = "#ee7942",
+              opacity = 0.5,
+              label = "ARS Algarve") %>% 
+  addLabelOnlyMarkers(-8.134, 37.180, label = "43090",
+                      labelOptions = labelOptions(noHide = T, direction = 'center', textOnly = T, style = list("color" = "black", "font-family" = "helvetica", "box-shadow" = "3px 3px rgba(0,0,0,0.25)", "font-size" = "12px", "box-color" = "gray", "border-color" = "rgba(0,0,0,0.5)"))) %>%  
+  addLegend("bottomright", pal = pal, 
+            values = c("1. ARS Norte", "2. ARS Centro", "3. ARS LVT", "4. ARS Alentejo", "5. ARS Algarve"),
+            title = "ARS",
+            opacity = 1)
+mapa_ARS
+```
+
+<br>
+
+```{r mapa acores, echo=FALSE, message=FALSE, warning=FALSE, fig.align = 'center', fig.cap="Casos confirmados cumulativos de COVID-19 na região dos Açores."}
+# Criar mapas dos açores
+mapa_acores <- leaflet() %>% addTiles() %>% 
+  addProviderTiles(providers$CartoDB.Positron) %>% 
+  setView(lng = -28.20, lat = 38.47, zoom = 7) %>% 
+  addPolygons(data = Acores,
+              color = "#eeb422",
+              opacity = 0.5,
+              label = "Açores") %>% 
+  addLabelOnlyMarkers(-28.35, 38.47, label = "9017",
+                      labelOptions = labelOptions(noHide = T, direction = 'center', textOnly = T, style = list("color" = "black", "font-family" = "helvetica", "box-shadow" = "3px 3px rgba(0,0,0,0.25)", "font-size" = "12px", "box-color" = "gray", "border-color" = "rgba(0,0,0,0.5)")))
+mapa_acores
+```
+
+
+<br>
+
+
+```{r mapa madeira, echo=FALSE, message=FALSE, warning=FALSE, fig.align = 'center', fig.cap="Casos confirmados cumulativos de COVID-19 na região da Madeira."}
+# Criar mapas da madeira _____________________________________________________
+mapa_madeira <- leaflet() %>% addTiles() %>% 
+  addProviderTiles(providers$CartoDB.Positron) %>% 
+  setView(lng = -17.025, lat = 32.730, zoom = 8) %>%
+  addPolygons(data = Madeira,
+              color = "#483d8b",
+              opacity = 0.5,
+              label = "Madeira") %>% 
+  addLabelOnlyMarkers(-17.025, 32.730, label = "12385",
+                      labelOptions = labelOptions(noHide = T, direction = 'center', textOnly = T, style = list("color" = "black", "font-family" = "helvetica", "box-shadow" = "3px 3px rgba(0,0,0,0.25)", "font-size" = "12px", "box-color" = "gray", "border-color" = "rgba(0,0,0,0.5)")))
+mapa_madeira
+```
+
+
+<br>
+
+
+#### **Evolução dos casos de doença grave**
+
+Para analisar a evolução dos casos graves, utilizámos os valores correspondentes aos internados da base de dados acima citada. Esta informação inclui as pessoas que foram internadas em unidades de cuidados intensivos (UCI) e em enfermaria.
+
+<br>
+
+```{r fig internados, include=FALSE, message=FALSE, warning=FALSE}
+fig_int <- plot(ggplot(data_covid, aes(x = data2)) + 
+                  geom_line(aes(y = internados, colour="Internados")) +
+                  geom_line(aes(y = internados_enfermaria, colour="Internados em enfermaria")) +
+                  geom_line(aes(y = internados_uci, colour="Internados em UCI")) + 
+                  geom_vline(aes(xintercept =as.numeric(as.Date(c("2020-12-27"))), color = "Primeira vacina"), linetype= c("solid"),  size = 0.5, show.legend = F) + 
+                  scale_colour_manual("", values = c("Internados"='DarkSeaGreen3', "Internados em enfermaria"='CadetBlue4', "Internados em UCI"='coral3', "Primeira vacina" = "azure4")) +
+                  scale_x_date(breaks = "3 month"))
+fig_int <- ggplotly(fig_int) %>% layout(title= "Evolução no N.º de Doentes Internados", 
+                                        font=list(family = "helvetica", size = 12, color = '#1a1a1a'), 
+                                        xaxis = list(title = "Data"), 
+                                        yaxis = list(title = "N.º de Internados"), 
+                                        paper_bgcolor='#ffffff', 
+                                        plot_bgcolor='#ffffff')
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+div(fig_int, align = "center")
+```
+
+<br>
+
+
+Verifica-se que a evolução dos casos graves segue a tendência vista acima relativa à evolução de novos casos diários. A linha vertical assinala o começo da campanha de vacinação em Portugal.
+
+
+<br>
+
+
+```{r correlação cruzada, echo=FALSE, message=FALSE, warning=FALSE}
+# Aqui, a ideia do cross correlation é perceber a relação entre os novos casos de COVID-19 confirmados diários e o n.º de internados diário, para poder encontrar um valor de lag (retardamento) fixo ou uma média nos últimos x dias para o cálculo de um rácio mais representativo entre o n.º de internados e o n.º de confirmados. Se houver correlação positiva, neste caso, quer dizer que quando os confirmados aumentam, os internados aumentam, ou quando os confirmados diminuem, os internados diminuem.
+data_covid$Rollmean_conf_novos <- rollmean(data_covid$confirmados_novos, k = 7, "center", fill = NA)
+cross_conf_int_dia <- ccf(data_covid$Rollmean_conf_novos,
+           data_covid$internados,
+           lag = 50,
+           na.action=na.omit)
+# Ex. cenário em que não havia casos e, de repente, num dia, apareciam 1000 casos. Só passado 10 dias é que os casos mais graves desses 1000 casos seriam internados
+# Alternativa: fazer ajuste com base em distribuições de tempos de internamento e de tempo do diagnóstico ao internamento
+```
+
+
+<br>
+
+
+Fazendo a correlação cruzada entre os novos casos de COVID-19 confirmados diários e o número de internados diário, verifica-se que existe uma correlação positiva entre as duas variáveis, sendo o máximo quando lag é -10. Isto quer dizer que os valores de confirmados há 10 dias influenciaram os valores dos internadas 10 dias depois. Assim, vamos usar este valor para o cálculo de um rácio mais representativo entre o número de internados e o número de confirmados. Ou seja, usaremos o valor do número de indivíduos confirmados de 10 dias anteriores ao valor do número de pessoas no internamento num determinado dia.
+
+
+<br>
+
+
+```{r dados racio, include=FALSE, message=FALSE, warning=FALSE}
+# Criar nova coluna com a proporção dos internados nos casos totais confirmados. Ter atenção ao lag acima no cálculo do rácio!
+data_covid <- mutate(data_covid, conf_intervalo = lag(confirmados_novos, n=9))
+data_covid$conf_intervalo <- ifelse(data_covid$conf_intervalo == 0, NA, data_covid$conf_intervalo)
+data_covid$racio_internados <- data_covid$internados / data_covid$conf_intervalo
+# Fazer rollmean dessa coluna para ter linha com menos picos
+data_covid$Rollmean_racio_int <- rollmean(data_covid$racio_internados, k = 7, "center", fill = NA)
+#COM ROLLMEAN
+fig_racio_int <- plot(ggplot(data_covid, aes(x = data2)) + 
+                  geom_line(aes(y = Rollmean_racio_int, colour = "Rácio Internados/Confirmados (lag 10 dias)")) +
+                  geom_vline(aes(xintercept = as.numeric(as.Date(c("2020-12-27"))), color = "Início da vacinação para pessoas de risco"), linetype= c("dashed"),  size = 0.3, show.legend = F) +
+                  geom_vline(aes(xintercept = as.numeric(as.Date(c("2021-02-04"))), color = "Início da vacinação para a população geral"), linetype= c("dashed"),  size = 0.3, show.legend = F) +
+                  scale_colour_manual("", values = c("Rácio Internados/Confirmados" = 'Aquamarine4', "Início da vacinação para pessoas de risco" = 'coral3', "Início da vacinação para a população geral" = 'Coral')) +
+                  scale_x_date(breaks = "3 month"))
+#SEM ROLLMEAN
+fig_racio_int <- plot(ggplot(data_covid, aes(x = data2)) + 
+                  geom_line(aes(y = racio_internados, colour = "Rácio Internados/Confirmados (lag 10 dias)")) +
+                  geom_vline(aes(xintercept = as.numeric(as.Date(c("2020-12-27"))), color = "Início da vacinação para pessoas de risco"), linetype= c("dashed"),  size = 0.3, show.legend = F) +
+                  geom_vline(aes(xintercept = as.numeric(as.Date(c("2021-02-04"))), color = "Início da vacinação para a população geral"), linetype= c("dashed"),  size = 0.3, show.legend = F) +
+                  scale_colour_manual("", values = c("Rácio Internados/Confirmados" = 'Aquamarine4', "Início da vacinação para pessoas de risco" = 'coral3', "Início da vacinação para a população geral" = 'Coral')) +
+                  scale_x_date(breaks = "3 month"))
+```
+
+
+```{r fig racio int, echo=FALSE, message=FALSE, warning=FALSE}
+fig_racio_int <- ggplotly(fig_racio_int) %>% layout(title= "Evolução do rácio internados/casos confirmados", 
+                                        font=list(family = "helvetica", size = 12, color = '#1a1a1a'), 
+                                        xaxis = list(title = "Data"), 
+                                        yaxis = list(title = "Proporção de internados nos casos totais confirmados"), 
+                                        paper_bgcolor='#ffffff', 
+                                        plot_bgcolor='#ffffff')
+div(fig_racio_int, align = "center")
+```
+
+
+<br>
+
+[COMENTÁRIO FEITO ANTES DO LAG!! A REVER!
+Através da observação do gráfico "Evolução do rácio internados/casos confirmados" denotam-se as seguintes tendências: aumento do número de doentes com forma grave de COVID-19 no período de Janeiro/Fevereiro 2021, em relação ao número total de indivíduos infetados. Esta subida deve-se provavelmente ao relaxamento das medidas de distanciamento social na época natalícia e passagem de ano, aliada a um baixo número de indivíduos totalmente vacinados (recorde-se que o início da vacinação para a população geral só arrancou, posteriormente, no dia 4 de Fevereiro de 2021). Após o segundo confinamento, com início no dia 15 de Janeiro de 2021 e redução de medidas no dia 5 de Abril de 2021, observa-se claramente um decréscimo no número de doentes internados neste período, fruto das medidas de teletrabalho e isolamento social implementadas e prosseguimento do programa vacinal.]
+
+<br>
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE} 
+fig_racio_int <- plot(ggplot(data_covid, aes(x = data2)) + 
+                  geom_line(aes(y = Rollmean_racio_int, colour = "Rácio Internados/Confirmados")) +
+                  geom_vline(aes(xintercept = as.numeric(as.Date(c("2020-12-27"))), color = "Início da vacinação para pessoas de risco"), linetype= c("dashed"),  size = 0.3, show.legend = F) +
+                  geom_vline(aes(xintercept = as.numeric(as.Date(c("2021-02-04"))), color = "Início da vacinação para a população geral"), linetype= c("dashed"),  size = 0.3, show.legend = F) +
+                  scale_colour_manual("", values = c("Rácio Internados/Confirmados" = 'Aquamarine4', "Início da vacinação para pessoas de risco" = 'coral3', "Início da vacinação para a população geral" = 'Coral')) +
+                  scale_x_date(breaks = "3 month"))
+data_covid$Rollmean_conf_intervalo <- rollmean(data_covid$conf_intervalo, k = 7, "center", fill = NA)
+fig_confirmados_dia <- plot(ggplot(data_covid, aes(x = data2)) + 
+                  geom_line(aes(y = Rollmean_conf_intervalo, colour = "Confirmados novos")) +
+                  geom_vline(aes(xintercept = as.numeric(as.Date(c("2020-12-27"))), color = "Início da vacinação para pessoas de risco"), linetype= c("dashed"),  size = 0.3, show.legend = F) +
+                  geom_vline(aes(xintercept = as.numeric(as.Date(c("2021-02-04"))), color = "Início da vacinação para a população geral"), linetype= c("dashed"),  size = 0.3, show.legend = F) +
+                  scale_colour_manual("", values = c("Confirmados novos" = 'gray48', "Início da vacinação para pessoas de risco" = 'coral3', "Início da vacinação para a população geral" = 'Coral')) +
+                  scale_x_date(breaks = "3 month"))
+plot_grid(fig_racio_int, fig_confirmados_dia)
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+# gráfico 2 y
+coeff <- 300
+dualyaxis <- ggplot(data_covid, aes(x=data2)) + 
+  geom_line( aes(y=racio_internados, colour = "Rácio Internados/Confirmados")) + 
+  geom_line( aes(y=Rollmean_conf_novos / coeff, colour = "Confirmados novos")) + 
+  scale_y_continuous(
+    name = "Rácio Internados/Confirmados",
+    sec.axis = sec_axis( trans=~.*coeff, name="Confirmados novos (lag 10 dias)")
+  ) +
+   geom_vline(aes(xintercept = as.numeric(as.Date(c("2020-12-27"))), color = "Início da vacinação para pessoas de risco"), linetype= c("dashed"),  size = 0.3, show.legend = F) +
+   geom_vline(aes(xintercept = as.numeric(as.Date(c("2021-02-04"))), color = "Início da vacinação para a população geral"), linetype= c("dashed"),  size = 0.3, show.legend = F) +
+  scale_colour_manual("", values = c("Rácio Internados/Confirmados" = 'Aquamarine4', "Confirmados novos" = 'gray48', "Início da vacinação para pessoas de risco" = 'coral3', "Início da vacinação para a população geral" = 'Coral')) +
+   scale_x_date(name = "Data", breaks = "3 month")
+  
+dualyaxis
+#não consegui passar para plotly por causa dos 2 eixos
+```
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+graf_relacao <- ggplot(data_covid, aes(conf_intervalo, racio_internados, color = data2)) + 
+  geom_point() + labs(colour = "Data", x = "N.º confirmados (lag 10 dias)", y = "Rácio internados/confirmação")
+graf_relacao <- ggplotly(graf_relacao)
+div(graf_relacao, align = "center")
+```
+
+
+<br>
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+graf_relacao1 <- ggplot(data_covid, aes(conf_intervalo, internados, color = data2)) + 
+  geom_point() + labs(colour = "Data", x = "N.º confirmados (lag 10 dias)", y = "N.º internados") 
+graf_relacao1 <- ggplotly(graf_relacao1)
+div(graf_relacao1, align = "center")
+```
+
+
+```{r experiências, eval=FALSE, include=FALSE}
+# A ccf não aceita NAs, por isso temos de substituir esses NAs pelos valores dos dias imediatamente anteriores ou por zero
+# hipótese A
+data_vacinacao$completo_novo_zero <- data_vacinacao$pessoas_vacinadas_completamente_novas
+data_vacinacao$completo_novo_zero[is.na(data_vacinacao$completo_novo_zero)] <- 0
+crossA <- ccf(data_vacinacao$completo_novo_zero,
+           data_covid$internados,
+           na.action=na.omit)
+crossA
+# hipótese B
+data_vacinacao$completo_novo_igual <- data_vacinacao$pessoas_vacinadas_completamente_novas
+data_vacinacao <- data_vacinacao %>% fill(completo_novo_igual, .direction = c("down"))
+crossB <- ccf(data_vacinacao$completo_novo_igual,
+           data_covid$internados,
+           lag = 50,
+           na.action=na.omit)
+crossB
+# Experiência internados e rácio
+crossC <- ccf(data_vacinacao$completo_novo_igual,
+           data_covid$racio_internados,
+           na.action=na.omit)
+crossC
+# A ideia do cross correlation era perceber a relação entre os casos e o internamento para poder ajustar um valor de lag fixo (ou uma média nos últimos x dias) para o calculo de um rácio que fosse mais representativo. Em relação ao racio, faz-se um racio internados/confirmados mas com confirmados de 10 dias anteriores aos dias de internamento
+# Isto quer dizer que os valores de confirmados há 10 dias influenciaram os valores dos internadas 10 dias depois. Se houver correlação positiva, neste caso, quer dizer que quando os confirmados aumentam, os internados aumentam, ou quando os confirmados diminuem, os internados diminuem.
+# Ex. cenário em que não havia casos e de repente num dia apareciam 1000 casos. Só passado 10 dias é que os casos mais graves desses 1000 casos seriam internados
+# Alternativa: fazer ajuste com base em distribuições de tempos de internamento e de tempo do diagnóstico ao internamento
+cross2 <- ccf(data_covid$Rollmean_conf_novos,
+           data_covid$internados,
+           lag = 50,
+           na.action=na.omit)
+cross2
+#data_covid$internados[is.na(data_covid$internados)] <- 0
+# Supostamente, a função faz a normalização da correlação
+#norm1 <- NCCc(data_vacina$doses_novas, data_covid$internados)
+#plot(norm1)
+<br>
+A correlação cruzada é uma medida de similaridade entre dois sinais em função de um atraso aplicado a um deles. Permite perceber melhor a relação causa-efeito entre ambas as variáveis. 
+Com o padrão acima entende-se que o número de pessoas novas completamente vacinadas teve um impacto no número de internados diário. A correlação é máxima quando o desfasamento é de 26-27 dias.
+<br>
+```
+
+
+<br>
+
+
+#### **Eficácia da vacinação**
+
+A vacinação contra a COVID-19 surge como uma resposta central para controlar a pandemia. Tem o objetivo de prevenir o aparecimento de doença grave e das suas consequências, de forma a reduzir a pressão exercida sobre o sistema nacional de saúde. Um indivíduo vacinado só se encontra protegido da doença uma a duas semanas após a vacinação completa. Este é o período que dá garantia de uma resposta robusta por parte do seu sistema imunitário. Ainda se desconhece se a vacinação impede a infeção assintomática. Ou seja, as vacinas conferem proteção contra a doença, mas não protegem necessariamente outras pessoas caso sejamos “portadores” e transmissores do vírus, sem exibir sintomas. As máscaras e o distanciamento evitam que possamos infetar outras pessoas caso sejamos “portadores” do vírus sem saber. Neste momento, não é possível avaliar por quanto tempo a proteção que a vacinação confere se irá manter, nem se haverá necessidade de administrar uma dose de reforço e qual a sua periodicidade.[^2]
+
+[^2]: DGS: Vacinação | Perguntas frequentes [Internet]. 2021. [acedido em 2021 Out 6]. https://covid19.min-saude.pt/perguntas-frequentes/
+
+
+<br>
+<br>
+
+```{r trabalhar dados, include=FALSE, warning=FALSE, message=FALSE}
+# Nova tabela só com dados para Portugal
+PT <- filter(ecdc, ReportingCountry == "PT")
+# Nova tabela sem ALL
+#PT_semALL <- filter(PT, TargetGroup != "ALL")
+# Fazer novas tabelas separadas por idades
+PT_menos18 <- filter(PT, TargetGroup == "Age<18")
+PT_18_24 <- filter(PT, TargetGroup == "Age18_24")
+PT_25_49 <- filter(PT, TargetGroup == "Age25_49")
+PT_50_59 <- filter(PT, TargetGroup == "Age50_59")
+PT_60_69 <- filter(PT, TargetGroup == "Age60_69")
+PT_70_79 <- filter(PT, TargetGroup == "Age70_79")
+PT_80mais <- filter(PT, TargetGroup == "Age80+")
+# Criar variaveis com as pessoas que estão completamente vacinadas, sendo que a Janssen apenas tem uma dose
+completamente_vacinados_menos18anos <- sum(PT_menos18$SecondDose) +  sum(PT_menos18[which(PT_menos18[,11]=="JANSS"),2])
+completamente_vacinados_18_24 <- sum(PT_18_24$SecondDose) +  sum(PT_18_24[which(PT_18_24[,11]=="JANSS"),2])
+completamente_vacinados_25_49 <- sum(PT_25_49$SecondDose) +  sum(PT_25_49[which(PT_25_49[,11]=="JANSS"),2])
+completamente_vacinados_50_59 <- sum(PT_50_59$SecondDose) +  sum(PT_50_59[which(PT_50_59[,11]=="JANSS"),2])
+completamente_vacinados_60_69 <- sum(PT_60_69$SecondDose) +  sum(PT_60_69[which(PT_60_69[,11]=="JANSS"),2])
+completamente_vacinados_70_79 <- sum(PT_70_79$SecondDose) +  sum(PT_70_79[which(PT_70_79[,11]=="JANSS"),2])
+completamente_vacinados_mais80anos <- sum(PT_80mais$SecondDose) +  sum(PT_80mais[which(PT_80mais[,11]=="JANSS"),2])
+```
+
+
+```{r pie chart, echo=FALSE, message=FALSE, warning=FALSE}
+colors <- c('rgb(0, 76, 163)', 'rgb(138, 81, 165)', 'rgb(203, 94, 152)', 'rgb(244, 123, 137)', 'rgb(255, 165, 126)', 'rgb(255, 211, 134)', 'rgb(93, 136, 186)')
+labels = c('< 18 anos','18-24 anos','25-49 anos','50-59 anos','60-69 anos','70-79 anos','> 80 anos')
+values = c(~completamente_vacinados_menos18anos, ~completamente_vacinados_18_24, ~completamente_vacinados_25_49, ~completamente_vacinados_50_59, ~completamente_vacinados_60_69, ~completamente_vacinados_70_79, ~completamente_vacinados_mais80anos)
+n_doses = c(completamente_vacinados_menos18anos, completamente_vacinados_18_24, completamente_vacinados_25_49, completamente_vacinados_50_59, completamente_vacinados_60_69, completamente_vacinados_70_79, completamente_vacinados_mais80anos)
+pie_chart <- plot_ly(labels = labels, values = values, type = 'pie',
+        textposition = 'inside',
+        textinfo = 'label+percent',
+        insidetextfont = list(color = '#FFFFFF'),
+        hoverinfo = 'text',
+        text = ~paste(n_doses, 'doses'),
+        marker = list(colors = colors,
+                      line = list(color = '#FFFFFF', width = 1)),
+        showlegend = FALSE)
+pie_chart <- pie_chart %>% layout(title = 'Percentagem de pessoas completamente vacinadas por faixa etária',
+          font=list(family = "helvetica", size = 13, color = '#1a1a1a'),
+          xaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
+          yaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE))
+div(pie_chart, align = "center")
+```
+
+<br>
+
+Portugal é constituído, aproximadamente por 10 400 000 habitantes [^3]. Assim, tendo em conta que os estudos apontam para a necessidade de 85% da população vacinada para a obtenção de imunidade de grupo [^4], verifica-se abaixo que o valor pretendido já foi alcançado.
+
+[^3]: Expresso [Internet]. [acedido em 2021 Out 7]. https://expresso.pt/sociedade/2021-07-28-Censos-2021.-Populacao-portuguesa-diminuiu-2-em-10-anos-metade-concentra-se-em-31-concelhos-de-Lisboa-e-Porto-846aded9
+
+[^4]: OE [Internet]. [acedido em 2021 Out 7]. https://www.ordemenfermeiros.pt/noticias/conteudos/oe-alerta-que-imunidade-de-grupo-s%C3%B3-se-atinge-com-85-da-popula%C3%A7%C3%A3o-vacinada-e-est%C3%A1-contra-fim-da-m%C3%A1scara-em-outubro/
+
+<br>
+
+```{r graf vacina, echo = FALSE, message = FALSE, warning = FALSE}
+data_vacina <- mutate(data_vacina, perc_vacinacao_completa = data_vacina$pessoas_vacinadas_completamente/10347892 * 100)
+# População vacinada
+graf_vacina <- ggplot(data = data_vacina, mapping = aes(x = data2, y = perc_vacinacao_completa)) +
+  geom_line(size = 1, alpha = 0.8, colour = "#50C7C7") +
+  labs(title= "Evolução da população vacinada",
+       x = "Data",
+       y = "População vacinada (%)") +
+  theme(axis.title = element_text()) +
+  theme(text = element_text(family ="helvetica")) +
+  geom_hline(yintercept = 85, linetype = "dashed", color = "orange") +
+  scale_x_date(date_breaks = "2 months") +
+  theme(plot.title = element_text(hjust = 0.5))
+ggplotly_vacina <- ggplotly(graf_vacina)
+div(ggplotly_vacina, align = "center")
+```
+
+
+<br>
+
+
+##### **Evolução da vacinação completa e primeiras doses por grupo etário**
+
+Seguidamente, observa-se em detalhe a evolução de vacinação de acordo com cada faixa etária previamente referida.
+
+```{r trabalhar dados cumulativos, include=FALSE, warning=FALSE, message=FALSE}
+# Quer-se um gráfico de linhas para cada faixa etária com 2 traçados, 1 de vacinação completa (2ª doses + 1ª dose Janssen) e outro de 1ªs doses incluindo Janssen, com valores cumulativos por semana.
+# Para isso, criar essas novas colunas, uma coluna com os valores cumulativos de vacinação completa (coluna SecondDose e 1ª dose de Janssen) e outra coluna com as 1ªs doses, mas em valores cumulativos, para cada tabela de grupo etário.
+# Criar na tabela PT_menos18 uma nova coluna (VacinacaoCompleta) com os valores das segundas doses, e posteriormente dizer que se na coluna Vaccine for a JANSS, o valor na coluna VacinacaoCompleta será igual ao que está na 1ª dose. Depois, criamos outra coluna com esses valores cumulativos.
+# Fazer o mesmo para as outras tabelas dos grupos etários.
+## Menos 18
+PT_menos18$VacinacaoCompleta <- PT_menos18$SecondDose
+PT_menos18$VacinacaoCompleta <- ifelse(PT_menos18$Vaccine == "JANSS", PT_menos18$FirstDose, PT_menos18$VacinacaoCompleta)
+PT_menos18$VacinacaoCompletaCum <- cumsum(PT_menos18$VacinacaoCompleta)
+PT_menos18$Primeiras_doses_cum <- cumsum(PT_menos18$FirstDose)
+## 18-24
+PT_18_24$VacinacaoCompleta <- PT_18_24$SecondDose
+PT_18_24$VacinacaoCompleta <- ifelse(PT_18_24$Vaccine == "JANSS", PT_18_24$FirstDose, PT_18_24$VacinacaoCompleta)
+PT_18_24$VacinacaoCompletaCum <- cumsum(PT_18_24$VacinacaoCompleta)
+PT_18_24$Primeiras_doses_cum <- cumsum(PT_18_24$FirstDose)
+## 25-49
+PT_25_49$VacinacaoCompleta <- PT_25_49$SecondDose
+PT_25_49$VacinacaoCompleta <- ifelse(PT_25_49$Vaccine == "JANSS", PT_25_49$FirstDose, PT_25_49$VacinacaoCompleta)
+PT_25_49$VacinacaoCompletaCum <- cumsum(PT_25_49$VacinacaoCompleta)
+PT_25_49$Primeiras_doses_cum <- cumsum(PT_25_49$FirstDose)
+## 50-59
+PT_50_59$VacinacaoCompleta <- PT_50_59$SecondDose
+PT_50_59$VacinacaoCompleta <- ifelse(PT_50_59$Vaccine == "JANSS", PT_50_59$FirstDose, PT_50_59$VacinacaoCompleta)
+PT_50_59$VacinacaoCompletaCum <- cumsum(PT_50_59$VacinacaoCompleta)
+PT_50_59$Primeiras_doses_cum <- cumsum(PT_50_59$FirstDose)
+## 60-69
+PT_60_69$VacinacaoCompleta <- PT_60_69$SecondDose
+PT_60_69$VacinacaoCompleta <- ifelse(PT_60_69$Vaccine == "JANSS", PT_60_69$FirstDose, PT_60_69$VacinacaoCompleta)
+PT_60_69$VacinacaoCompletaCum <- cumsum(PT_60_69$VacinacaoCompleta)
+PT_60_69$Primeiras_doses_cum <- cumsum(PT_60_69$FirstDose)
+## 70-79
+PT_70_79$VacinacaoCompleta <- PT_70_79$SecondDose
+PT_70_79$VacinacaoCompleta <- ifelse(PT_70_79$Vaccine == "JANSS", PT_70_79$FirstDose, PT_70_79$VacinacaoCompleta)
+PT_70_79$VacinacaoCompletaCum <- cumsum(PT_70_79$VacinacaoCompleta)
+PT_70_79$Primeiras_doses_cum <- cumsum(PT_70_79$FirstDose)
+## Mais 80
+PT_80mais$VacinacaoCompleta <- PT_80mais$SecondDose
+PT_80mais$VacinacaoCompleta <- ifelse(PT_80mais$Vaccine == "JANSS", PT_80mais$FirstDose, PT_80mais$VacinacaoCompleta)
+PT_80mais$VacinacaoCompletaCum <- cumsum(PT_80mais$VacinacaoCompleta)
+PT_80mais$Primeiras_doses_cum <- cumsum(PT_80mais$FirstDose)
+# Agora fazer os gráficos de linhas para cada grupo etário
+```
+
+<br>
+
+```{r gráfico linhas menos 18, echo=FALSE, warning=FALSE, message=FALSE}
+graf_menos18 <- plot_ly(PT_menos18, x = ~YearWeekISO, y = ~Primeiras_doses_cum, type = 'scatter', mode = 'lines', line = list(dash = "dash"), color = "Primeiras doses") %>% 
+  add_trace(y = ~VacinacaoCompletaCum, type = 'scatter', mode = 'lines', line = list(dash = "solid"), color = "Vacinação completa")
+graf_menos18 <- graf_menos18 %>% layout(title = 'Evolução da vacinação em pessoas com menos de 18 anos (valores cumulativos)', font=list(family = "helvetica", size = 12, color = '#1a1a1a'),
+                                        xaxis = list(nticks = 20, title = 'Semanas'),
+                                        yaxis = list (title = 'Doses'))
+div(graf_menos18, align = "center")
+```
+
+<br>
+<br>
+
+```{r gráfico linhas 18-24, echo=FALSE, warning=FALSE, message=FALSE}
+graf_18_24 <- plot_ly(PT_18_24, x = ~YearWeekISO, y = ~Primeiras_doses_cum, type = 'scatter', mode = 'lines', line = list(dash = "dash"), color = "Primeiras doses") %>% 
+  add_trace(y = ~VacinacaoCompletaCum, type = 'scatter', mode = 'lines', line = list(dash = "solid"), color = "Vacinação completa")
+graf_18_24 <- graf_18_24 %>% layout(title = 'Evolução da vacinação em pessoas entre os 18 e 24 anos (valores cumulativos)', font=list(family = "helvetica", size = 12, color = '#1a1a1a'),
+         xaxis = list(nticks = 20, title = 'Semanas'),
+         yaxis = list (title = 'Doses'))
+div(graf_18_24, align = "center")
+```
+
+<br>
+<br>
+
+```{r gráfico linhas 25-49, echo=FALSE, warning=FALSE, message=FALSE}
+graf_25_49 <- plot_ly(PT_25_49, x = ~YearWeekISO, y = ~Primeiras_doses_cum, type = 'scatter', mode = 'lines', line = list(dash = "dash"), color = "Primeiras doses") %>% 
+  add_trace(y = ~VacinacaoCompletaCum, type = 'scatter', mode = 'lines', line = list(dash = "solid"), color = "Vacinação completa")
+graf_25_49 <- graf_25_49 %>% layout(title = 'Evolução da vacinação em pessoas entre os 25 e 49 anos (valores cumulativos)', font=list(family = "helvetica", size = 12, color = '#1a1a1a'), 
+         xaxis = list(nticks = 20, title = 'Semanas'),
+         yaxis = list (title = 'Doses'))
+div(graf_25_49, align = "center")
+```
+
+<br>
+<br>
+
+```{r gráfico linhas 50-59, echo=FALSE, warning=FALSE, message=FALSE}
+graf_50_59 <- plot_ly(PT_50_59, x = ~YearWeekISO, y = ~Primeiras_doses_cum, type = 'scatter', mode = 'lines', line = list(dash = "dash"), color = "Primeiras doses") %>% 
+  add_trace(y = ~VacinacaoCompletaCum, type = 'scatter', mode = 'lines', line = list(dash = "solid"), color = "Vacinação completa")
+graf_50_59 <- graf_50_59 %>% layout(title = 'Evolução da vacinação em pessoas entre os 50 e 59 anos (valores cumulativos)', font=list(family = "helvetica", size = 12, color = '#1a1a1a'), 
+         xaxis = list(nticks = 20, title = 'Semanas'),
+         yaxis = list (title = 'Doses'))
+div(graf_50_59, align = "center")
+```
+
+<br>
+<br>
+
+```{r gráfico linhas 60-69, echo=FALSE, warning=FALSE, message=FALSE}
+graf_60_69 <- plot_ly(PT_60_69, x = ~YearWeekISO, y = ~Primeiras_doses_cum, type = 'scatter', mode = 'lines', line = list(dash = "dash"), color = "Primeiras doses") %>% 
+  add_trace(y = ~VacinacaoCompletaCum, type = 'scatter', mode = 'lines', line = list(dash = "solid"), color = "Vacinação completa")
+graf_60_69 <- graf_60_69 %>% layout(title = 'Evolução da vacinação em pessoas entre os 60 e 69 anos (valores cumulativos)', font=list(family = "helvetica", size = 12, color = '#1a1a1a'), 
+         xaxis = list(nticks = 20, title = 'Semanas'),
+         yaxis = list (title = 'Doses'))
+div(graf_60_69, align = "center")
+```
+
+<br>
+<br>
+
+```{r gráfico linhas 70-79, echo=FALSE, warning=FALSE, message=FALSE}
+graf_70_79 <- plot_ly(PT_70_79, x = ~YearWeekISO, y = ~Primeiras_doses_cum, type = 'scatter', mode = 'lines', line = list(dash = "dash"), color = "Primeiras doses") %>% 
+  add_trace(y = ~VacinacaoCompletaCum, type = 'scatter', mode = 'lines', line = list(dash = "solid"), color = "Vacinação completa")
+graf_70_79 <- graf_70_79 %>% layout(title = 'Evolução da vacinação em pessoas entre os 70 e 79 anos (valores cumulativos)', font=list(family = "helvetica", size = 12, color = '#1a1a1a'), 
+         xaxis = list(nticks = 20, title = 'Semanas'),
+         yaxis = list (title = 'Doses'))
+div(graf_70_79, align = "center")
+```
+
+<br>
+<br>
+
+```{r gráfico linhas mais 80, echo=FALSE, warning=FALSE, message=FALSE}
+graf_mais80 <- plot_ly(PT_80mais, x = ~YearWeekISO, y = ~Primeiras_doses_cum, type = 'scatter', mode = 'lines', line = list(dash = "dash"), color = "Primeiras doses") %>% 
+  add_trace(y = ~VacinacaoCompletaCum, type = 'scatter', mode = 'lines', line = list(dash = "solid"), color = "Vacinação completa")
+graf_mais80 <- graf_mais80 %>% layout(title = 'Evolução da vacinação em pessoas com idade igual ou superior a 80 anos (valores cumulativos)', font=list(family = "helvetica", size = 12, color = '#1a1a1a'), 
+         xaxis = list(nticks = 20, title = 'Semanas'),
+         yaxis = list (title = 'Doses'))
+div(graf_mais80, align = "center")
+```
+
+
+<br>
+
+Em Portugal, estão previstas atualmente no programa vacinal contra a COVID-19 4 vacinas diferentes:  COVID-19 Vaccine Janssen (JANSS), Vaxzevria (AZ), COVID-19 Spikevax (MOD) e Comirnaty (COM). A primeira envolve apenas uma dose, enquanto as restantes necessitam de 2 administrações. 
+Nos traçados dos gráficos acima, entende-se por primeiras doses todas as primeiras tomas das 4 marcas disponíveis, independentemente de ser necessária uma nova administração. A vacinação completa refere-se às primeiras e únicas administrações de JANSS e às segundas administrações das restantes 3 vacinas, dependendo dos casos.
+
+
+<br>
+
+
+##### **Taxa de população com vacinação incompleta por grupo etário**
+
+Os traçados do gráfico abaixo foram obtidos pela diferença entre valores cumulativos de Primeiras doses e de Vacinação Completa, em termos percentuais. A subida das várias linhas no gráfico apresentado justifica-se com o início do plano de vacinação, isto é, com a vacinação das pessoas com as primeiras doses. Quando se começou a dar as segundas doses vacinais, a diferença foi reduzindo, daí o declínio das várias curvas.
+Se toda a população que se apresentou inicialmente para vacinação tivesse completado o processo, esperaríamos que os traçados alcançacem o valor de 0% de vacinação incompleta. Como tal não ocorre, significa que houve pessoas que não receberam a 2ª administração da vacina, como estava inicialmente programado. Observa-se que a vacinação completa chegou mais perto do objetivo no grupo etário da população com mais de 80 anos e ficou mais longe de se concretizar nos indivíduos com idades compreendidas entre os 25 e os 49 anos.
+
+
+<br>
+
+
+```{r trabalhar dados vacina incompleta, echo=FALSE, message=FALSE, warning=FALSE}
+# Criar novas colunas em cada tabela com os valores inteiros de 1ªas doses que posteriormente não tiveram 2ª dose, sem contar com Janssen, para calcular a taxa de vacinação incompleta.
+PT_menos18$Incomp_menos18 <- PT_menos18$FirstDose - PT_menos18$VacinacaoCompleta
+PT_18_24$Incomp_18_24 <- PT_18_24$FirstDose - PT_18_24$VacinacaoCompleta
+PT_25_49$Incomp_25_49 <- PT_25_49$FirstDose - PT_25_49$VacinacaoCompleta
+PT_50_59$Incomp_50_59 <- PT_50_59$FirstDose - PT_50_59$VacinacaoCompleta
+PT_60_69$Incomp_60_69 <- PT_60_69$FirstDose - PT_60_69$VacinacaoCompleta 
+PT_70_79$Incomp_70_79 <- PT_70_79$FirstDose - PT_70_79$VacinacaoCompleta
+PT_80mais$Incomp_80mais <- PT_80mais$FirstDose - PT_80mais$VacinacaoCompleta
+ 
+PT_menos18$Incomp_Cum_menos18 <- cumsum(PT_menos18$Incomp_menos18)
+PT_18_24$Incomp_Cum_18_24 <- cumsum(PT_18_24$Incomp_18_24)
+PT_25_49$Incomp_Cum_25_49 <- cumsum(PT_25_49$Incomp_25_49)
+PT_50_59$Incomp_Cum_50_59 <- cumsum(PT_50_59$Incomp_50_59)
+PT_60_69$Incomp_Cum_60_69 <- cumsum(PT_60_69$Incomp_60_69) 
+PT_70_79$Incomp_Cum_70_79 <- cumsum(PT_70_79$Incomp_70_79)
+PT_80mais$Incomp_Cum_80mais <- cumsum(PT_80mais$Incomp_80mais)
+ 
+# Calcular percentagens desses valores, caso seja necessário
+PT_menos18$Incomp_Perc_menos18 <- ((PT_menos18$Primeiras_doses_cum - PT_menos18$VacinacaoCompletaCum) / PT_menos18$Population) * 100
+PT_18_24$Incomp_Perc_18_24 <- ((PT_18_24$Primeiras_doses_cum - PT_18_24$VacinacaoCompletaCum) / PT_18_24$Population) * 100
+PT_25_49$Incomp_Perc_25_49 <- ((PT_25_49$Primeiras_doses_cum - PT_25_49$VacinacaoCompletaCum) / PT_25_49$Population) * 100
+PT_50_59$Incomp_Perc_50_59 <- ((PT_50_59$Primeiras_doses_cum - PT_50_59$VacinacaoCompletaCum) / PT_50_59$Population) * 100
+PT_60_69$Incomp_Perc_60_69 <- ((PT_60_69$Primeiras_doses_cum - PT_60_69$VacinacaoCompletaCum) / PT_60_69$Population) * 100
+PT_70_79$Incomp_Perc_70_79 <- ((PT_70_79$Primeiras_doses_cum - PT_70_79$VacinacaoCompletaCum) / PT_70_79$Population) * 100
+PT_80mais$Incomp_Perc_80mais <- ((PT_80mais$Primeiras_doses_cum - PT_80mais$VacinacaoCompletaCum) / PT_80mais$Population) * 100
+# Escolhi trabalhar com os valores cumulativos em percentagem (mas não sei se será o mais indicado...)
+nova_menos18 <- PT_menos18 %>% group_by(YearWeekISO) %>% tally(Incomp_Perc_menos18)
+nova_18_24 <- PT_18_24 %>% group_by(YearWeekISO) %>% tally(Incomp_Perc_18_24)
+nova_25_49 <- PT_25_49 %>% group_by(YearWeekISO) %>% tally(Incomp_Perc_25_49)
+nova_50_59 <- PT_50_59 %>% group_by(YearWeekISO) %>% tally(Incomp_Perc_50_59)
+nova_60_69 <- PT_60_69 %>% group_by(YearWeekISO) %>% tally(Incomp_Perc_60_69)
+nova_70_79 <- PT_70_79 %>% group_by(YearWeekISO) %>% tally(Incomp_Perc_70_79)
+nova_80mais <- PT_80mais %>% group_by(YearWeekISO) %>% tally(Incomp_Perc_80mais)
+# Adição de uma nova linha com semana em falta para grupo < 18 anos
+linhaextra <- data.frame(YearWeekISO= c("2020-W52"), n = c(0), stringsAsFactors = FALSE)
+nova_menos18 <- rbind(linhaextra, nova_menos18)
+```
+
+
+```{r  echo = FALSE, warning=FALSE, message=FALSE}
+# Criar gráfico 
+vacinacao_incompleta <- plot_ly(x = nova_menos18$YearWeekISO, y = nova_menos18$n, name = '< 18', type = 'scatter', mode = 'lines', line = list(color = '#004ca3'))
+vacinacao_incompleta <- vacinacao_incompleta %>% add_trace(y = nova_18_24$n, name = '18-24', line = list(color = '#8a51a5'))
+vacinacao_incompleta <- vacinacao_incompleta %>% add_trace(y = nova_25_49$n, name = '25-49', line = list(color = '#cb5e99'))
+vacinacao_incompleta <- vacinacao_incompleta %>% add_trace(y = nova_50_59$n, name = '50-59', line = list(color = '#f47b89'))
+vacinacao_incompleta <- vacinacao_incompleta %>% add_trace(y = nova_60_69$n, name = '60-69', line = list(color = '#ffa47e'))
+vacinacao_incompleta <- vacinacao_incompleta %>% add_trace(y = nova_70_79$n, name = '70-79', line = list(color = '#ffd286'))
+vacinacao_incompleta <- vacinacao_incompleta %>% add_trace(y = nova_80mais$n, name = '> 80', line = list(color = '#5d88ba'))
+vacinacao_incompleta <- vacinacao_incompleta %>% layout(title = 'Vacinação incompleta por grupo etário', 
+                      font=list(family = "helvetica", size = 12, color = '#1a1a1a'),
+                      xaxis = list(nticks = 20, title = "Data", 
+                                   showgrid = FALSE), 
+                      yaxis = list(title = "% vacinação incompleta", 
+                                   showgrid = FALSE, 
+                                   ticksuffix = '%'),
+                      paper_bgcolor = "#ffffff",
+                      plot_bgcolor = "#ffffff"
+                      )
+vacinacao_incompleta <- vacinacao_incompleta %>% layout(legend=list(title=list(text='<b> Grupos etários </b>')))
+div(vacinacao_incompleta, align = "center")
+```
+
+
+<br>
+
+
+#### **Transmissibilidade do vírus - R(t)**
+
+Existem dois parâmetros ou índices de transmissibilidade: o R0, número básico de reprodução, e o R(t), número de reprodução efetivo em função do tempo. [^5]
+
+[^5]: Instituto Nacional de Saúde Doutor Ricardo Jorge. 2021. Covid-19: curva epidémica e parâmetros de transmissibilidade. [acedido em 2121 out 21]. http://www.insa.min-saude.pt/category/areas-de-atuacao/epidemiologia/covid-19-curva-epidemica-e-parametros-de-transmissibilidade/
+
+O R0 trata-se do valor do R em condições "ideais" para o vírus em causa, isto é, revela o número médio de pessoas infetadas por cada doente quando toda a população é suscetível ao vírus, não havendo medidas de saúde pública implementadas e propagando-se o vírus na população, tendo em conta a taxa de contactos. Existem três variáveis principais que influenciam o valor de R0 de uma doença: período de infeção, taxa de contacto e forma de transmissão. O período de infeção corresponde ao intervalo temporal em que uma pessoa infetada consegue transmitir a doença, sendo que factores adicionais como a idade da pessoa infetada e a doença em estudo contibuem para uma variação adicional. A taxa de contacto traduz-se num aumento do número de casos quando uma pessoa infectada entra em contacto com indivíduos não vacinados ou não infetados, sendo esta a base teórica para a necessidade de implementação de medidas de distanciamento social. Por último, a transmissão por aerossóis resulta frequentemente num valor de R0 mais elevado, quando comparado com a transmissão por contacto ou fluidos corporais. [^6]
+
+[^6]: V.J Carey, C. Morefield, J. Mallery, S.Davis (2020). Understanding COVID-19 with R and Public Data. [acedido em 2021 out 25]. https://seandavi.github.io/sars2pack-book/the-replication-rate-r-0.html
+
+Em Portugal, esta propagação "natural" deu-se até 16 de março, momento em que a primeira medida de contingência foi tomada. Deste modo, o nível de contágio expectável de uma epidemia e, consequentemente, as medidas necessárias para reduzir o R até um valor que permita o controlo do surto são apuradas por este indicador.
+Com a evolução da epidemia, realizam-se periodicamente atualizações do valor do R, designado por R(t). Trata-se de um indicador de quantas pessoas um determinado indivíduo pode infetar, dentro de um determinado período [^7]. A monitorização da sua evolução é fundamental para entender o efeito das medidas de contenção ao longo do surto de Covid-19 e para determinar a necessidade de aligeirar, aprofundar ou manter os esforços de contenção do vírus. O valor do Rt pode revelar-se ainda útil para avaliar a capacidade do sistema de saúde para lidar com a pandemia.
+Quando o R é superior a 1, o número de casos futuros tenderá a ser maior do que o número de casos atuais. Pelo contrário, quando o número é inferior a 1, o número de novos casos passa a ser inferior ao número de casos atuais. [^8]
+
+[^7]: Governo dos Açores. 2021. Índice de Transmissibilidade (Rt). [acedido em 2021 out 21]. https://destinoseguro.azores.gov.pt/?page_id=9622
+
+[^8]: João Francisco Gomes. 2020. ""R" volta a subir e ameaça regresso à normalidade. Que número é este e porque é tão importante?". Observador; [acedido em 2021 out 21].  https://observador.pt/especiais/r-volta-a-subir-e-ameaca-regresso-a-normalidade-que-numero-e-este-e-porque-e-tao-importante/
+
+
+Esta análise tem de ser feita em conjunto com outros dados, como o número de novos casos, o número de mortos, a ocupação de camas hospitalares e em cuidados intensivos, entre outros. [^9]
+
+[^9]: Joana Sá. 2021. "Qual a importância do Índice de transmissibilidade R(t)?". Cruz Vermelha Portuguesa. [acedido em 2021 out 21]. https://testescovidcvp.pt/rt-indice-de-transmissibilidade-covid-19/
+
+
+A Organização Mundial de Saúde qualificou a situação gerada pelo SARS-CoV-2 como sendo de emergência de saúde pública, tornando-se crucial a previsão de medidas para assegurar o tratamento da COVID-19 e estabelecer medidas excecionais e temporárias de resposta à epidemia, em particular no que respeita às liberdades de circulação e económica, com vista a prevenir a transmissão do vírus. A partir do dia 18 de março de 2020, foi decretado o estado de emergência em Portugal. [^10]
+
+[^10]: Governo da República Portuguesa. 2020. Decreto do Governo que regulamenta o estado de emergência. [acedido em 2021 out 21]. https://www.portugal.gov.pt/pt/gc22/comunicacao/documento?i=decreto-do-governo-que-regulamenta-o-estado-de-emergencia
+
+O gráfico abaixo demonstra a evolução do R(t) após o início do estado emergência:
+
+<br>
+
+```{r manipular dados Rt, echo = FALSE, warning=FALSE, message=FALSE}
+# Estimate_Rt calcula valores de Rt com base no serial interval em dados cumulativos
+# Os valores mean e std foram retirados de https://wwwnc.cdc.gov/eid/article/26/6/20-0357_article
+# mean 3.96 /  IC 95 / min 3.53 - max4.3
+# std 4.75 / IC 95 / min 4.46 - max5.07
+Rt_pt = estimate_Rt(
+  data_covid,
+  cases_column = "confirmados",
+  date_column = "data2",
+  estimation_family='epiestim',
+  cumulative=TRUE,
+  method = 'parametric_si',
+  config = list( mean_si = 3.96,
+                 min_mean_si = 3.53, max_mean_si = 4.39,
+                 std_si = 4.75,
+                 min_std_si = 4.46, max_std_si = 5.07))
+#                 n1 = 1000,
+#                 n2 = 100,
+#                 seed = 123456789))
+```
+
+
+```{r echo = FALSE, warning=FALSE, message=FALSE}
+# Grafico Mean R - Date
+p <- ggplot(Rt_pt, aes(x = date_start,y = `Mean(R)`)) + 
+  geom_line(colour = "#50C7C7", size = .75) +
+  geom_smooth() +
+  labs(title= "Evolução do R(t)",
+       x = "Data",
+       y = "Média R(t)") +
+  theme(text = element_text(family = "helvetica", size = 11, color = '#1a1a1a'), plot.title = element_text(hjust = 0.5)) +
+  scale_x_date(breaks = "3 month") +
+  ylim(0.5,1.5) +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "navy", size = 0.3)
+p1 <- ggplotly(p) 
+div(p1, align = "center")
+```
+
+<br>
+
+O intervalo de série trata-se do tempo entre o início dos sintomas no indivíduo infetado primário (infectante) e o início dos sintomas no indivíduo que recebe aquela infecção do infectante (o infectado). [^11] Para a COVID-19, estima-se que seja cerca de 4 dias. Tendo isso em consideração, consegue estimar-se o valor do R. De momento, o valor está abaixo da linha que marca o valor 1.
+
+[^11]: Baum SG. 2020. Serial Interval of COVID-19. https://www.jwatch.org/na51171/2020/03/27/serial-interval-covid-19
+
+<br>
+
+
+```{r guardar dados, include=FALSE, warning=FALSE, message=FALSE}
+#render("fim.Rmd")
+```
